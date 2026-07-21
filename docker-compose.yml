@@ -1,0 +1,260 @@
+# ============================================================
+#  GÖREV: SOC — Segmente NAC Altyapısı
+#  DMZ (dışa açık)  <->  Internal (izole)
+#
+#  Ağ mantığı:
+#   - dmz_net       : normal bridge, dışarı açık. OpenVPN + zafiyetli web.
+#   - internal_net  : internal:true → dış dünyaya ÇIKIŞI YOK.
+#                     Postgres/Redis/FastAPI burada tamamen izole.
+#   - freeradius    : TEK köprü. Hem dmz_net hem internal_net'te.
+#                     DMZ'den iç ağa "belirli port" (RADIUS 1812/1813)
+#                     sadece bunun üzerinden açılır. Böylece Red Team'in
+#                     DMZ'den PostgreSQL/FastAPI'ye direkt erişim denemesi
+#                     ağ seviyesinde başarısız olur = segmentasyon kanıtı.
+#
+#  Active-response mimarisi:
+#   Saldırılar (brute-force / cert spoofing) toolbox'tan doğrudan
+#   radius:1812'ye gider. RADIUS saldırganın gerçek IP'sini görür ve
+#   iç ağdan Wazuh manager'a ulaşabilir. Bu yüzden Wazuh AGENT'ı
+#   FreeRADIUS container'ının içinde çalışır ve iptables ile bloklamayı
+#   ORADA yapar. Manager iç ağda kalır (segmentasyon korunur).
+#
+#  Not: `version:` alanı modern compose'da gereksiz, kullanılmadı.
+# ============================================================
+
+name: nac-soc-lab
+
+networks:
+  dmz_net:
+    name: dmz_net
+    driver: bridge
+  internal_net:
+    name: internal_net
+    driver: bridge
+    internal: true          # <-- kritik: iç ağ dış dünyaya çıkamaz
+
+volumes:
+  pgdata:                   # PostgreSQL verisi
+  pki:                      # üretilen sertifikalar (CA, server, admin/employee/guest)
+  openvpn_logs:             # SOC'un okuyacağı loglar
+  radius_logs:
+  fastapi_logs:
+  wazuh_data:
+
+services:
+
+  # ============================================================
+  # PKI — bir kez çalışır, tüm sertifikaları üretir, çıkar.
+  # KİŞİ 1: ./scripts/pki içinde easy-rsa ile CA + server cert +
+  #         admin/employee/guest client cert + 1 expired + 1 revoked
+  #         (Red Team senaryoları için) + CRL üreten bir script yaz.
+  # ============================================================
+  pki-init:
+    build: ./scripts/pki
+    container_name: pki-init
+    restart: "no"
+    volumes:
+      - pki:/pki
+
+  # ============================================================
+  #  DMZ BÖLGESİ
+  # ============================================================
+
+  # KİŞİ 3: OpenVPN Gateway (uzak kullanıcı giriş yöntemi)
+  # server.conf içinde: CA + server cert göster, crl-verify (revoked reddi),
+  # kimlik doğrulamayı FreeRADIUS'a devret (radiusplugin / mgmt).
+  # NOT (bonus): VPN gateway'inde de bloklama isteniyorsa buraya da bir
+  #   wazuh-agent konur, ama manager iç ağda olduğu için agent'ın manager'a
+  #   ulaşabilmesi gerekir (manager'ı dmz_net'e de eklemek gerekir).
+  #   Zorunlu madde RADIUS tarafında karşılandığı için bu OPSİYONEL.
+  openvpn:
+    build: ./dmz/openvpn
+    container_name: openvpn-gw
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    ports:
+      - "1194:1194/udp"     # dışa açık tek VPN portu
+    volumes:
+      - pki:/etc/openvpn/pki:ro
+      - openvpn_logs:/var/log/openvpn
+    networks:
+      - dmz_net             # SADECE DMZ. İç ağa doğrudan erişemez.
+
+  # KİŞİ 3: Zafiyetli "Kurumsal Web Servisi" — Red Team'in sıçrama noktası.
+  # ./dmz/corp-web içine bilinçli zafiyetli basit bir Flask/FastAPI app koy
+  # (örn. parametreyi doğrudan işleyen bir endpoint / açık debug arayüzü).
+  # Bu makineden iç ağa ulaşılamadığı segmentasyon testinde gösterilecek.
+  corp-web:
+    build: ./dmz/corp-web
+    container_name: corp-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - dmz_net             # SADECE DMZ. Postgres/FastAPI'ye erişemez.
+
+  # ============================================================
+  #  INTERNAL BÖLGESİ (izole)
+  # ============================================================
+
+  # KİŞİ 2: PostgreSQL — auth kararları + RADIUS accounting/postauth logları.
+  # DİKKAT: host'a port AÇMIYORUZ. Sadece iç ağdan erişilebilir.
+  db:
+    image: postgres:15
+    container_name: radius-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./internal/postgres/db-init:/docker-entrypoint-initdb.d:ro
+    # ports: [] -> BİLİNÇLİ OLARAK YOK. Segmentasyon için dışa kapalı.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal_net
+
+  # KİŞİ 2: Redis — rate-limiting sayaçları (ardışık başarısız deneme tespiti).
+  # Config compose komutuyla veriliyor (--requirepass), ayrı redis.conf YOK.
+  # Sayaç deseni policy-engine tarafında: INCR fail:<kimlik> + EXPIRE.
+  redis:
+    image: redis:7-alpine
+    container_name: nac-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    networks:
+      - internal_net
+
+  # KİŞİ 3: FastAPI Policy Engine (projenin "beyni").
+  # /authorize endpoint: gelen kimliğe göre rol (admin/employee/guest) bul,
+  # VLAN/erişim profili döndür, Redis sayacını yönet, kararı Postgres'e logla.
+  policy-engine:
+    build: ./internal/policy-engine
+    container_name: policy-engine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      FAIL_THRESHOLD: ${FAIL_THRESHOLD}
+      FAIL_WINDOW_SECONDS: ${FAIL_WINDOW_SECONDS}
+    volumes:
+      - fastapi_logs:/var/log/policy-engine
+    networks:
+      - internal_net        # SADECE iç ağ. Dışarıdan erişilemez.
+
+  # KİŞİ 2: FreeRADIUS (EAP-TLS) — TEK köprü servis + active-response noktası.
+  # mods-enabled/eap (EAP-TLS) + mods-enabled/rest (policy-engine'e sor).
+  # DMZ'ye sadece RADIUS portu bakar; iç ağdaki policy-engine/db'ye erişir.
+  # ÖNEMLİ: Bu container'ın Dockerfile'ı ayrıca bir wazuh-agent kurar ve
+  #   WAZUH_MANAGER'a bağlanır. Alarm eşiği aşılınca Wazuh active-response
+  #   iptables DROP'u BU container'da çalıştırır (KİŞİ 4 ile koordineli).
+  radius:
+    build: ./internal/freeradius
+    container_name: freeradius
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      policy-engine:
+        condition: service_started
+      pki-init:
+        condition: service_completed_successfully
+      wazuh-manager:
+        condition: service_started
+    environment:
+      RADIUS_CLIENT_SECRET: ${RADIUS_CLIENT_SECRET}
+      POLICY_ENGINE_URL: "http://policy-engine:8000/authorize"
+      DB_HOST: db
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      WAZUH_MANAGER: "wazuh-manager"   # container içindeki agent buraya raporlar
+    volumes:
+      - pki:/etc/raddb/certs:ro
+      - radius_logs:/var/log/radius
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    cap_add:
+      - NET_ADMIN           # active-response iptables için (agent burada blok atar)
+    networks:
+      - dmz_net             # DMZ'ye açılan tek kapı (sadece RADIUS portu)
+      - internal_net        # iç ağdaki policy-engine + db + manager'a erişir
+
+  # ============================================================
+  #  SOC / SAVUNMA
+  # ============================================================
+
+  # KİŞİ 4: Wazuh Manager — decoder + custom rules + active-response beyni.
+  # Paylaşılan log volume'larını okur (openvpn/radius/fastapi), ardışık
+  # hatalarda "Kritik Ağ İhlali" alarmı basar. Alarm eşiği aşılınca
+  # active-response komutunu FreeRADIUS içindeki AGENT'a gönderir; blok
+  # orada (choke point) atılır. Manager iç ağda kalır → segmentasyon korunur.
+  # Agent kayıt/log portları (1514/1515) internal_net üzerinden erişilir,
+  # host'a publish edilmez.
+  # NOT: Görsel panel isteniyorsa resmi wazuh-docker single-node stack'ini
+  #      (indexer + dashboard) ayrıca eklersiniz; RAM ve vm.max_map_count
+  #      ayarı gerektirir. Alarm + active-response için manager yeterli.
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    container_name: wazuh-manager
+    restart: unless-stopped
+    hostname: wazuh-manager
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - wazuh_data:/var/ossec/data
+      # SOC bu logları okuyacak (localfile blokları ossec.conf içinde tanımlı):
+      - openvpn_logs:/logs/openvpn:ro
+      - radius_logs:/logs/radius:ro
+      - fastapi_logs:/logs/fastapi:ro
+      # Ana config (localfile + command + active-response tanımları burada):
+      - ./soc/wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      # Custom decoder / rule / active-response scriptleri:
+      - ./soc/wazuh/local_decoder.xml:/var/ossec/etc/decoders/local_decoder.xml:ro
+      - ./soc/wazuh/local_rules.xml:/var/ossec/etc/rules/local_rules.xml:ro
+      - ./soc/active-response:/var/ossec/active-response/bin/custom:ro
+    networks:
+      - internal_net
+
+  # ============================================================
+  #  TEST / RED TEAM yardımcı konteyneri
+  # ============================================================
+
+  # Red Team: radclient / python ile saldırı senaryolarını buradan çalıştır.
+  # dmz_net'e bağlı → gerçek bir DMZ makinesi gibi davranır, segmentasyon
+  # testini (iç ağa erişim denemesi) buradan yapar. Dockerfile'ı KİŞİ 1
+  # hazırlar (radclient + openvpn-client + python kurulu).
+  toolbox:
+    build: ./redteam
+    container_name: nac-toolbox
+    depends_on:
+      - radius
+      - corp-web
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - pki:/pki:ro         # sahte/expired/revoked cert testleri için
+    networks:
+      - dmz_net
