@@ -885,6 +885,17 @@ post-auth {
 #	reply_log
 
 	#
+        # EAP-TLS sonrasında Policy Engine üzerinden VLAN kararı al.
+        if (&TLS-Client-Cert-Common-Name) {
+                rest
+                if (fail || invalid || notfound) {
+                        reject
+                }
+                if (&control:Auth-Type == Reject) {
+                        reject
+                }
+        }
+
 	#  After authenticating the user, do another SQL query.
 	#
 	#  See "Authentication Logging Queries" in mods-available/sql
