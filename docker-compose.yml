@@ -28,10 +28,18 @@ networks:
   dmz_net:
     name: dmz_net
     driver: bridge
+    # Sabit subnet: NAS/istemci IP'leri öngörülebilir olsun diye pinlendi.
+    # P2'nin clients.conf'u bu IP'lere göre yazılır (0.0.0.0/0 KULLANILMAZ).
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   internal_net:
     name: internal_net
     driver: bridge
     internal: true          # <-- kritik: iç ağ dış dünyaya çıkamaz
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
 
 volumes:
   pgdata:                   # PostgreSQL verisi
@@ -84,7 +92,8 @@ services:
       - pki:/etc/openvpn/pki:ro
       - openvpn_logs:/var/log/openvpn
     networks:
-      - dmz_net             # SADECE DMZ. İç ağa doğrudan erişemez.
+      dmz_net:                        # SADECE DMZ. İç ağa doğrudan erişemez.
+        ipv4_address: 172.30.0.10     # NAS IP — P2'nin clients.conf'una yazılacak
 
   # KİŞİ 3: Zafiyetli "Kurumsal Web Servisi" — Red Team'in sıçrama noktası.
   # ./dmz/corp-web içine bilinçli zafiyetli basit bir Flask/FastAPI app koy
@@ -257,4 +266,8 @@ services:
     volumes:
       - pki:/pki:ro         # sahte/expired/revoked cert testleri için
     networks:
-      - dmz_net
+      dmz_net:
+        ipv4_address: 172.30.0.20     # Red Team kaynak IP'si — clients.conf'ta
+                                      # TANIMLI OLMALI; aksi halde FreeRADIUS
+                                      # bu paketleri sessizce düşürür ve saldırı
+                                      # hiç loglanmaz/alarm üretmez.
