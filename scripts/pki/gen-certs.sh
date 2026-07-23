@@ -116,12 +116,36 @@ sign expired "expired.$DOMAIN" client_ext \
 echo "[pki] dhparam ($DH_BITS bit) — biraz sürebilir..."
 openssl dhparam -out dh.pem "$DH_BITS" 2>/dev/null
 
+# --- CA + CRL bundle (FreeRADIUS check_crl için) ---
+# FreeRADIUS/OpenSSL, CRL kontrolü açıkken (check_crl = yes) CRL'i CA
+# sertifikasıyla BİRLİKTE yüklenmiş bekler. Bu yüzden ca.crt + crl.pem tek
+# dosyada birleştirilir; FreeRADIUS bunu ca_file olarak kullanır.
+# NOT: crl.pem yeniden üretilirse bu bundle da yeniden üretilmelidir.
+echo "[pki] ca-crl.pem bundle üretiliyor (FreeRADIUS check_crl)..."
+cat ca.crt crl.pem > ca-crl.pem
+
 # --- çıktıyı PKI_DIR'e kopyala ---
 mkdir -p "$PKI_DIR"
-cp ca.crt ca.key dh.pem crl.pem "$PKI_DIR/"
+cp ca.crt ca.key dh.pem crl.pem ca-crl.pem "$PKI_DIR/"
 for f in server admin employee guest expired revoked; do
   cp "$f.crt" "$f.key" "$PKI_DIR/"
 done
+
+# --- izinler ---
+# Varsayılan: tüm private key'ler 0600 (yalnızca sahibi okur).
 chmod 600 "$PKI_DIR"/*.key
+# İstisna: FreeRADIUS ayrıcalıklarını 'freerad' kullanıcısına düşürdüğü için
+# 0600 root-only key'i okuyamaz. server.key -> 0640 (grup okuyabilir).
+chmod 640 "$PKI_DIR/server.key"
+# 0640'ın işe yaraması için dosyanın GRUBU, FreeRADIUS'un çalıştığı grupla
+# eşleşmeli. Farklı imajlarda GID'ler tutmayabilir; gerekirse compose'da
+# SERVER_KEY_GID verilerek hizalanır (ör. SERVER_KEY_GID=101).
+if [ -n "${SERVER_KEY_GID:-}" ]; then
+  chgrp "$SERVER_KEY_GID" "$PKI_DIR/server.key" \
+    && echo "[pki] server.key grubu -> GID $SERVER_KEY_GID"
+fi
+# Sertifikalar ve public materyal herkes tarafından okunabilir.
+chmod 644 "$PKI_DIR"/*.crt "$PKI_DIR/dh.pem" "$PKI_DIR/crl.pem" "$PKI_DIR/ca-crl.pem"
+
 echo "[pki] TAMAM. Üretilenler:"
-ls -1 "$PKI_DIR"
+ls -l "$PKI_DIR"
