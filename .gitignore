@@ -1,0 +1,36 @@
+@'
+# Ortam degiskenleri (secret'lar burada)
+.env
+*.env
+!env.example
+
+# PKI - private key'ler ve uretilen sertifikalar repoya girmez
+pki/
+*.key
+*.pem
+*.crt
+*.csr
+*.p12
+*.srl
+scripts/pki/newcerts/
+scripts/pki/index.txt*
+scripts/pki/serial*
+scripts/pki/crlnumber*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Docker / runtime loglari
+*.log
+logs/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+'@ | Set-Content -Encoding utf8 .gitignore
