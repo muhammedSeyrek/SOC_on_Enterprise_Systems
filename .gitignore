@@ -1,3 +1,16 @@
+# Ortam / gizli
 .env
+*.key
+*.pem
+
+# Yerel çalışma dosyaları
 mnt/
+install-p3.sh
+test-p3.sh
+
+# Python
 __pycache__/
+*.pyc
+
+# Sistem
+.DS_Store
