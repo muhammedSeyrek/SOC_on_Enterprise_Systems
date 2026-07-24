@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       freeradius-utils \
       wpasupplicant \
       openvpn \
+      eapoltest \
       python3 python3-requests \
       netcat-openbsd curl iproute2 dnsutils iputils-ping \
     && rm -rf /var/lib/apt/lists/*
