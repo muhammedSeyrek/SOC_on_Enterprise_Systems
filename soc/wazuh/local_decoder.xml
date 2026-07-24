@@ -1,0 +1,18 @@
+<!--
+  NAC ozel decoder'lari.
+
+  NOT: Bu dosya bilincli olarak BOS birakilmistir.
+  ossec.conf icindeki localfile bloklari <log_format>json</log_format>
+  kullandigi icin Wazuh bu loglari DAHILI JSON decoder'i ile otomatik
+  cozer ve "decoded_as json" olarak isaretler. local_rules.xml icindeki
+  <decoded_as>json</decoded_as> ve <field name="event"> kurallari bu
+  sayede ozel bir decoder olmadan calisir.
+
+  Onceki surumde <type>json</type> tanimli bir decoder vardi. "json"
+  gecerli bir decoder tipi degildir (gecerliler: syslog, firewall, ids,
+  web-log, squid, windows, host-information, ossec) ve analysisd hata
+  verir. Bu yuzden kaldirildi.
+
+  Duz metin (JSON olmayan) loglar icin, ornegin OpenVPN, decoder
+  yazilmasi gerekirse buraya eklenebilir.
+-->
