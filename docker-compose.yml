@@ -48,6 +48,7 @@ volumes:
   radius_logs:
   fastapi_logs:
   wazuh_data:
+  wazuh_agent_etc:
 
 services:
 
@@ -201,9 +202,12 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       WAZUH_MANAGER: "wazuh-manager"   # container içindeki agent buraya raporlar
+      WAZUH_AGENT_NAME: "freeradius"
     volumes:
       - pki:/etc/raddb/certs:ro
       - radius_logs:/var/log/radius
+      - wazuh_agent_etc:/var/ossec/etc
+      - ./soc/active-response:/var/ossec/active-response/bin/custom:ro
     ports:
       - "1812:1812/udp"
       - "1813:1813/udp"
