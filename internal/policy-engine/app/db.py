@@ -1,13 +1,18 @@
 # ============================================================
 #  PostgreSQL: auth kararlarını auth_logs tablosuna yazar.
-#  auth_logs tablosunu IF NOT EXISTS ile kendi kurar -> P2'nin şeması
-#  gecikirse bile policy-engine çalışır. P2 aynı tabloyu (IF NOT EXISTS)
-#  tanımlarsa çakışma olmaz.
+#  ŞEMA P2 (01-schema.sql) ile BİREBİR aynı olmalı:
+#    identity, role, method, source_ip, result, reason,
+#    vlan_assigned, fail_count
+#  db.py'nin kendi CREATE TABLE'ı da bu şemayla aynıdır (P2 gecikirse
+#  policy-engine yine çalışır; P2 IF NOT EXISTS ile tanımladığı için çakışmaz).
 # ============================================================
 import os
 import time
+import logging
+
 import psycopg2
 
+log = logging.getLogger("policy_db")
 _conn = None
 
 
@@ -29,18 +34,19 @@ def get_conn():
     return _conn
 
 
+# P2'nin şemasıyla AYNI: source_ip VARCHAR (INET değil), identity NOT NULL değil
 DDL = """
 CREATE TABLE IF NOT EXISTS auth_logs (
-    id          bigserial PRIMARY KEY,
-    ts          timestamptz NOT NULL DEFAULT now(),
-    identity    text,
-    role        text,
-    method      text,
-    source_ip   text,
-    result      text,
-    reason      text,
-    vlan        integer,
-    fail_count  integer
+    id            bigserial PRIMARY KEY,
+    ts            timestamptz NOT NULL DEFAULT now(),
+    identity      text,
+    role          varchar(32),
+    method        text,
+    source_ip     varchar(45),
+    result        text,
+    reason        text,
+    vlan_assigned integer,
+    fail_count    integer
 );
 """
 
@@ -61,17 +67,20 @@ def init_db(retries: int = 15):
 
 
 def insert_log(**kw):
+    """auth_logs'a bir karar yazar. Hata olursa artık SESSİZ DEĞİL — loglar."""
     try:
         with get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO auth_logs
-                   (identity, role, method, source_ip, result, reason, vlan, fail_count)
+                   (identity, role, method, source_ip, result, reason,
+                    vlan_assigned, fail_count)
                    VALUES (%(identity)s,%(role)s,%(method)s,%(source_ip)s,
-                           %(result)s,%(reason)s,%(vlan)s,%(fail_count)s)""",
+                           %(result)s,%(reason)s,%(vlan_assigned)s,%(fail_count)s)""",
                 kw,
             )
-    except Exception:
-        # DB düşse bile auth kararını bloklama (jsonl log yine yazılır)
+    except Exception as e:
+        # Hatayı YUTMA, logla — auth kararını yine bloklama ama görünür olsun
+        log.error("auth_logs INSERT basarisiz: %s | veri=%s", e, kw)
         global _conn
         _conn = None
 
@@ -79,8 +88,9 @@ def insert_log(**kw):
 def recent_logs(limit: int = 50):
     with get_conn().cursor() as cur:
         cur.execute(
-            "SELECT ts, identity, role, method, source_ip, result, reason, vlan, fail_count "
-            "FROM auth_logs ORDER BY ts DESC LIMIT %s",
+            "SELECT ts, identity, role, method, source_ip, result, reason, "
+            "vlan_assigned, fail_count "
+            "FROM auth_logs ORDER BY id DESC LIMIT %s",
             (limit,),
         )
         cols = [c[0] for c in cur.description]
