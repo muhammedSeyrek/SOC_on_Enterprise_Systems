@@ -242,10 +242,9 @@ services:
       - radius_logs:/logs/radius:ro
       - fastapi_logs:/logs/fastapi:ro
       # Ana config (localfile + command + active-response tanımları burada):
-      - ./soc/wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
-      # Custom decoder / rule / active-response scriptleri:
-      - ./soc/wazuh/local_decoder.xml:/var/ossec/etc/decoders/local_decoder.xml:ro
-      - ./soc/wazuh/local_rules.xml:/var/ossec/etc/rules/local_rules.xml:ro
+      - ./soc/wazuh/ossec.conf:/wazuh-config-mount/etc/ossec.conf
+      - ./soc/wazuh/local_decoder.xml:/wazuh-config-mount/etc/decoders/local_decoder.xml
+      - ./soc/wazuh/local_rules.xml:/wazuh-config-mount/etc/rules/local_rules.xml
       - ./soc/active-response:/var/ossec/active-response/bin/custom:ro
     networks:
       - internal_net
