@@ -1,0 +1,5 @@
+<!-- Generic JSON Decoder for NAC Logs -->
+<decoder name="nac-json">
+  <type>json</type>
+  <prematch>event</prematch>
+</decoder>
