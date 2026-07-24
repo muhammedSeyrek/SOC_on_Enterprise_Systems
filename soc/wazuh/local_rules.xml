@@ -1,64 +1,27 @@
 <group name="nac_custom_rules">
 
-    <!-- Brute Force -->
-
     <rule id="100100" level="12">
-
-        <decoded_as>json</decoded_as>
-
         <field name="event">rate_limit_exceeded</field>
-
-        <description>
-            Kritik Ağ İhlali (Brute Force)
-        </description>
-
-        <group>
-            brute_force,
-            authentication_failed,
-        </group>
-
+        <description>Kritik Ağ İhlali (Brute Force)</description>
+        <group>authentication,bruteforce,</group>
     </rule>
 
+    <rule id="100101" level="10">
+        <field name="event">auth_decision</field>
+        <field name="result">reject</field>
+        <field name="reason">gecersiz_veya_iptal_kimlik</field>
 
+        <description>Certificate Authentication Failed</description>
 
-    <!-- Certificate Spoofing -->
-
-    <rule id="100101" level="12">
-
-        <decoded_as>json</decoded_as>
-
-        <field name="event">certificate_spoofing</field>
-
-        <description>
-            Certificate Spoofing Attack
-        </description>
-
-        <group>
-            certificate,
-            spoofing,
-        </group>
-
+        <group>certificate,authentication,</group>
     </rule>
-
-
-
-    <!-- Unauthorized Access -->
 
     <rule id="100102" level="12">
-
-        <decoded_as>json</decoded_as>
-
         <field name="event">unauthorized_access</field>
 
-        <description>
-            Unauthorized Access
-        </description>
+        <description>Unauthorized Access Attempt</description>
 
-        <group>
-            unauthorized,
-            network,
-        </group>
-
+        <group>authentication,network,</group>
     </rule>
 
 </group>
