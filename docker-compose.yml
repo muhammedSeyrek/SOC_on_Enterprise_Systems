@@ -60,6 +60,8 @@ services:
   pki-init:
     build: ./scripts/pki
     container_name: pki-init
+    environment:
+      SERVER_KEY_GID: "101"
     restart: "no"
     volumes:
       - pki:/pki

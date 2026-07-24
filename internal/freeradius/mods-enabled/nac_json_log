@@ -1,0 +1,15 @@
+linelog nac_json_log {
+    filename = /var/log/radius/radius.log
+    permissions = 0640
+    escape_filenames = no
+
+    reference = "messages.%{%{reply:Packet-Type}:-default}"
+
+    messages {
+        default = ""
+
+        Access-Accept = "{\"event\":\"auth_accepted\",\"src_ip\":\"%{Packet-Src-IP-Address}\",\"identity\":\"%{jsonquote:%{User-Name}}\",\"method\":\"eap-tls\",\"vlan_assigned\":\"%{jsonquote:%{reply:Tunnel-Private-Group-Id}}\",\"severity\":\"info\"}"
+
+        Access-Reject = "{\"event\":\"auth_rejected\",\"src_ip\":\"%{Packet-Src-IP-Address}\",\"identity\":\"%{jsonquote:%{User-Name}}\",\"method\":\"eap-tls\",\"reason\":\"%{jsonquote:%{%{Module-Failure-Message}:-authentication_failed}}\",\"severity\":\"warning\"}"
+    }
+}
