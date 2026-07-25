@@ -24,4 +24,18 @@
         <group>authentication,network,</group>
     </rule>
 
+    <rule id="100103" level="12" frequency="5" timeframe="60">
+
+    <decoded_as>json</decoded_as>
+
+    <field name="event">auth_rejected</field>
+
+    <same_field>src_ip</same_field>
+
+    <description>FreeRADIUS Brute Force Detected</description>
+
+    <group>authentication_failed,bruteforce,radius</group>
+
+</rule>
+
 </group>
