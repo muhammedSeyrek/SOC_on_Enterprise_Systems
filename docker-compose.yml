@@ -208,7 +208,8 @@ services:
       - radius_logs:/var/log/radius
       - wazuh_agent_etc:/var/ossec/etc
       - fastapi_logs:/logs/fastapi:ro
-      - ./soc/active-response:/var/ossec/active-response/bin/custom:ro
+      - ./soc/active-response/block_ip.sh:/var/ossec/active-response/bin/block_ip.sh:ro
+      - ./soc/active-response/quarantine.sh:/var/ossec/active-response/bin/quarantine.sh:ro
     ports:
       - "1812:1812/udp"
       - "1813:1813/udp"
