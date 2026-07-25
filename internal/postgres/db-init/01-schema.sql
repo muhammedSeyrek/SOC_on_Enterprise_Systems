@@ -57,12 +57,14 @@ CREATE TABLE access_profiles (
 CREATE TABLE auth_logs (
     id            BIGSERIAL PRIMARY KEY,
     ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    identity      VARCHAR(128) NOT NULL,
-    method        VARCHAR(16) NOT NULL,
-    source_ip     INET,
+    identity      VARCHAR(128),
+    role          VARCHAR(32),
+    method        VARCHAR(16),
+    source_ip     VARCHAR(45),
     result        VARCHAR(16) NOT NULL,
     reason        VARCHAR(255),
-    vlan_assigned INTEGER
+    vlan_assigned INTEGER,
+    fail_count    INTEGER
 );
 
 CREATE INDEX idx_radacct_username ON radacct(username);
