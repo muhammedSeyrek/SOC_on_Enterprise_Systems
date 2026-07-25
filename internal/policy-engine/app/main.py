@@ -92,7 +92,7 @@ async def authorize(request: Request):
     if result == "accept":
         redis_client.reset_fail(src_ip)
         db.insert_log(identity=cn, role=role, method=method, source_ip=src_ip,
-                      result="accept", reason=reason, vlan=vlan, fail_count=0)
+                      result="accept", reason=reason, vlan_assigned=vlan, fail_count=0)
         jlog(event="auth_decision", identity=cn, role=role, method=method,
              src_ip=src_ip, result="accept", vlan=vlan, reason=reason, fail_count=0)
         return JSONResponse(_accept_body(role, vlan, f"{role} -> VLAN{vlan}"))
@@ -100,9 +100,15 @@ async def authorize(request: Request):
     # --- reject yolu ---
     fails = redis_client.incr_fail(src_ip)
     db.insert_log(identity=cn, role=role, method=method, source_ip=src_ip,
-                  result="reject", reason=reason, vlan=None, fail_count=fails)
+                  result="reject", reason=reason, vlan_assigned=None, fail_count=fails)
     jlog(event="auth_decision", identity=cn, role=role, method=method,
          src_ip=src_ip, result="reject", reason=reason, fail_count=fails)
+
+    # VPN yolundan gelen reddedilmiş denemeler -> "Unauthorized Access" sinyali (KİŞİ 4).
+    # eap-tls red'i (cert spoofing kuralı) ile çakışmasın diye sadece vpn'e özel.
+    if method == "vpn":
+        jlog(event="unauthorized_access", identity=cn, method=method, src_ip=src_ip,
+             result="reject", reason=reason, fail_count=fails)
 
     if fails >= FAIL_THRESHOLD:
         # Wazuh brute-force kuralı BU satırı yakalar -> active-response (KİŞİ 4)
