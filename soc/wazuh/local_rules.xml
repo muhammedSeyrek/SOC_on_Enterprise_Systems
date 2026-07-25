@@ -1,4 +1,4 @@
-<group name="nac_custom_rules">
+<group name="nac_custom_rules,">
 
     <rule id="100100" level="12">
         <field name="event">rate_limit_exceeded</field>
