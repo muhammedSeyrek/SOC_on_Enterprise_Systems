@@ -207,6 +207,7 @@ services:
       - pki:/etc/raddb/certs:ro
       - radius_logs:/var/log/radius
       - wazuh_agent_etc:/var/ossec/etc
+      - fastapi_logs:/logs/fastapi:ro
       - ./soc/active-response:/var/ossec/active-response/bin/custom:ro
     ports:
       - "1812:1812/udp"
