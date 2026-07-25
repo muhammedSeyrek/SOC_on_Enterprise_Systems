@@ -24,11 +24,26 @@
         <group>authentication,network,</group>
     </rule>
 
-    <rule id="100103" level="12" frequency="5" timeframe="60">
+  <!-- FreeRADIUS Authentication Reject -->
 
+<rule id="100104" level="3">
     <decoded_as>json</decoded_as>
-
     <field name="event">auth_rejected</field>
+
+    <description>FreeRADIUS authentication rejected</description>
+
+    <group>authentication_failed,radius</group>
+</rule>
+
+
+<!-- FreeRADIUS Brute Force -->
+
+<rule id="100103"
+      level="12"
+      frequency="5"
+      timeframe="60">
+
+    <if_matched_sid>100104</if_matched_sid>
 
     <same_field>src_ip</same_field>
 
