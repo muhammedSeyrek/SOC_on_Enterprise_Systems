@@ -10,47 +10,30 @@
         <field name="event">auth_decision</field>
         <field name="result">reject</field>
         <field name="reason">gecersiz_veya_iptal_kimlik</field>
-
         <description>Certificate Authentication Failed</description>
-
         <group>certificate,authentication,</group>
     </rule>
 
     <rule id="100102" level="12">
         <field name="event">unauthorized_access</field>
-
         <description>Unauthorized Access Attempt</description>
-
         <group>authentication,network,</group>
     </rule>
 
-  <!-- FreeRADIUS Authentication Reject -->
+    <!-- 1. Tekil reddedilme logu (Düşük Seviye) -->
+    <rule id="100104" level="3">
+        <decoded_as>json</decoded_as>
+        <field name="event">auth_rejected</field>
+        <description>FreeRADIUS authentication rejected (Single Event)</description>
+        <group>authentication_failed,radius,</group>
+    </rule>
 
-<rule id="100104" level="3">
-    <decoded_as>json</decoded_as>
-    <field name="event">auth_rejected</field>
-
-    <description>FreeRADIUS authentication rejected</description>
-
-    <group>authentication_failed,radius,</group>
-</rule>
-
-
-<!-- FreeRADIUS Brute Force -->
-
-<rule id="100103"
-      level="12"
-      frequency="5"
-      timeframe="60">
-
-    <if_matched_sid>100104</if_matched_sid>
-
-    <same_field>src_ip</same_field>
-
-    <description>FreeRADIUS Brute Force Detected</description>
-
-    <group>authentication_failed,bruteforce,radius,</group>
-
-</rule>
+    <!-- 2. Sıklık Kuralı: 30 saniyede aynı kaynak IP'den 5 kez 100104 gelirse tetiklenir -->
+    <rule id="100103" level="10" frequency="5" timeframe="30">
+        <if_matched_sid>100104</if_matched_sid>
+        <same_source_ip />
+        <description>FreeRADIUS Multiple Authentication Failures (Possible Brute Force / Rogue Client)</description>
+        <group>authentication_failures,radius,</group>
+    </rule>
 
 </group>
