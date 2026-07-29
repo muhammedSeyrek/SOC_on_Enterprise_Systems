@@ -1,45 +1,53 @@
-#!/bin/bash
+#!/bin/sh
 
-LOGFILE="/var/ossec/logs/active-responses.log"
+# Stdin uzerinden gelen JSON verisini oku
+INPUT_JSON=$(cat)
 
-INPUT=$(cat)
+# Wazuh komutu: add veya delete
+COMMAND=$(echo "$INPUT_JSON" | grep -o '"command":"[^"]*"' | cut -d'"' -f4)
 
-echo "$INPUT" >> "$LOGFILE"
+# IP adresini ayikla (srcip veya src_ip)
+SRC_IP=$(echo "$INPUT_JSON" | grep -o '"srcip":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$SRC_IP" ]; then
+    SRC_IP=$(echo "$INPUT_JSON" | grep -o '"src_ip":"[^"]*"' | cut -d'"' -f4)
+fi
 
-COMMAND=$(echo "$INPUT" | jq -r '.command')
-SRC_IP=$(echo "$INPUT" | jq -r '.parameters.alert.data.src_ip')
+LOG_FILE="/var/ossec/logs/active-responses.log"
 
 if [ -z "$SRC_IP" ] || [ "$SRC_IP" = "null" ]; then
-    echo "$(date) quarantine: src_ip not found" >> "$LOGFILE"
+    echo "$(date) [quarantine] Source IP bulunamadi, cikiliyor." >> "$LOG_FILE" 2>/dev/null
     exit 1
 fi
 
+QUARANTINE_VLAN_IF="eth0.99"  # VLAN 99 Arayuzu (veya Karantina Subnet'i)
+QUARANTINE_NET="192.168.99.0/24"
+
 case "$COMMAND" in
+  add)
+    # Zaten karantinada mi kontrol et
+    if iptables -t mangle -C PREROUTING -s "$SRC_IP" -j MARK --set-mark 99 2>/dev/null; then
+        echo "$(date) [quarantine] $SRC_IP zaten VLAN 99 karantinasindaydi." >> "$LOG_FILE" 2>/dev/null
+    else
+        # Paketleri VLAN 99 mark'i (0x63) ile etiketle ve karantina subnet'ine yonlendir
+        iptables -t mangle -A PREROUTING -s "$SRC_IP" -j MARK --set-mark 99
+        
+        # Alternatif/Destekleyici: Trafigi karantina IP bloğuna DNAT ile yolla
+        # iptables -t nat -A PREROUTING -s "$SRC_IP" -j DNAT --to-destination 192.168.99.100
+        
+        echo "$(date) [quarantine] KARANTINAYA ALINDI (VLAN 99): $SRC_IP" >> "$LOG_FILE" 2>/dev/null
+    fi
+    ;;
 
-add)
+  delete)
+    # Karantina etiketini ve kurallarini temizle (while ile tum birikmisleri sil)
+    while iptables -t mangle -C PREROUTING -s "$SRC_IP" -j MARK --set-mark 99 2>/dev/null; do
+        iptables -t mangle -D PREROUTING -s "$SRC_IP" -j MARK --set-mark 99 2>/dev/null
+    done
+    echo "$(date) [quarantine] VLAN 99 karantinasi kaldirildi: $SRC_IP" >> "$LOG_FILE" 2>/dev/null
+    ;;
 
-    iptables -C INPUT -s "$SRC_IP" -j DROP 2>/dev/null || \
-    iptables -I INPUT -s "$SRC_IP" -j DROP
-
-    iptables -C OUTPUT -d "$SRC_IP" -j DROP 2>/dev/null || \
-    iptables -I OUTPUT -d "$SRC_IP" -j DROP
-
-    echo "$(date) QUARANTINE applied -> $SRC_IP (VLAN99 simulated)" >> "$LOGFILE"
-;;
-
-delete)
-
-    iptables -D INPUT -s "$SRC_IP" -j DROP 2>/dev/null
-    iptables -D OUTPUT -d "$SRC_IP" -j DROP 2>/dev/null
-
-    echo "$(date) QUARANTINE removed -> $SRC_IP" >> "$LOGFILE"
-;;
-
-*)
-
-    echo "$(date) Unknown command: $COMMAND" >> "$LOGFILE"
-;;
-
+  *)
+    echo "$(date) [quarantine] Bilinmeyen komut: '$COMMAND'" >> "$LOG_FILE" 2>/dev/null
+    exit 1
+    ;;
 esac
-
-exit 0
